@@ -20,5 +20,11 @@ recordings/
 *.swp
 .DS_Store
 
-# Large files
+# Large binary files
 *.so
+*.a
+*.o
+*.dll
+
+# Git LFS tracked files
+aenv/lib/python3.8/site-packages/llvmlite/binding/libllvmlite.so
