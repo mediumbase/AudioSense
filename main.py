@@ -25,10 +25,10 @@ app.mount("/recordings", StaticFiles(directory="recordings"), name="recordings")
 DEVICE = os.getenv("AUDIO_DEVICE", "default")
 SAMPLE_RATE = int(os.getenv("SAMPLE_RATE", 44100))
 BLOCK_SIZE = int(os.getenv("BLOCK_SIZE", 1024))
-auto_record_threshold = float(os.getenv("AUTO_RECORD_THRESHOLD", -30.0))
-min_recording_duration = float(os.getenv("MIN_RECORDING_DURATION", 10.0))
-silence_timeout = float(os.getenv("SILENCE_TIMEOUT", 5.0))
-max_recording_duration = float(os.getenv("MAX_RECORDING_DURATION", 1000.0))
+auto_record_threshold = float(os.getenv("AUTO_RECORD_THRESHOLD", -40.0))
+min_recording_duration = float(os.getenv("MIN_RECORDING_DURATION", 5.0))
+silence_timeout = float(os.getenv("SILENCE_TIMEOUT", 2.0))
+max_recording_duration = float(os.getenv("MAX_RECORDING_DURATION", 30.0))
 
 class RecordingState:
     def __init__(self):
