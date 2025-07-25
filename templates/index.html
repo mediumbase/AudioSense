@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sound Meter</title>
+    <style>
+        body {
+            background: #000;
+            color: #fff;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: relative;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .menu {
+            position: relative;
+            right: auto;
+        }
+        .menu ul {
+            list-style: none;
+            display: flex;
+            gap: 15px;
+            margin: 0;
+            padding: 0;
+        }
+        .menu a {
+            color: #0ff;
+            text-decoration: none;
+        }
+        @media (max-width: 767px) {
+            header {
+                justify-content: center;
+            }
+            .logo {
+                flex: 1 0 100%;
+                text-align: center;
+                margin-bottom: 10px;
+            }
+            .menu {
+                flex: 1 0 100%;
+            }
+            .menu ul {
+                justify-content: center;
+            }
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .section {
+            background: #111;
+            padding: 10px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,255,255,0.1);
+            width: 100%;
+            box-sizing: border-box;
+            overflow-x: auto;
+        }
+        @media (min-width: 768px) {
+            .container {
+                flex-direction: row;
+                flex-wrap: nowrap;
+            }
+            .d1 { order: 2; width: 30%; }
+            .d2 { order: 3; width: 35%; }
+            .d3 { order: 1; width: 35%; }
+        }
+        @media (max-width: 767px) {
+            .d1 { order: 1; }
+            .d2 { order: 2; }
+            .d3 { order: 3; }
+        }
+        #meter-container {
+            position: relative;
+            width: 100%;
+            height: 100px;
+            perspective: 1000px;
+        }
+        #meter {
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to bottom, #111, #222);
+            border: 1px solid #333;
+            border-radius: 10px;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.5), 0 0 10px rgba(0,255,255,0.2);
+            overflow: hidden;
+            transform: rotateX(10deg);
+            position: relative;
+        }
+        #wave {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            height: 0%;
+            background: linear-gradient(to right, cyan, lime, cyan);
+            clip-path: polygon(0 100%, 10% 90%, 20% 70%, 30% 40%, 40% 10%, 50% 0%, 60% 10%, 70% 40%, 80% 70%, 90% 90%, 100% 100%);
+            transition: height 0.1s, clip-path 0.1s;
+        }
+        #particles {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        .particle {
+            position: absolute;
+            background: rgba(0,255,255,0.5);
+            border-radius: 50%;
+        }
+        #amplitude {
+            text-align: center;
+            margin-top: 10px;
+        }
+        #amplitude.near-threshold {
+            color: #ff0;
+            text-shadow: 0 0 5px #ff0;
+        }
+        #amplitude.above-threshold {
+            color: #f00;
+            font-weight: bold;
+            text-shadow: 0 0 8px #f00;
+        }
+        #logs {
+            height: 150px;
+            overflow-y: auto;
+            background: #000;
+            padding: 5px;
+            border: 1px solid #333;
+        }
+        .recording-card {
+            background: #222;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 8px rgba(0,255,255,0.05);
+        }
+        .recording-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            color: #0ff;
+        }
+        .recording-audio {
+            margin-bottom: 10px;
+            position: relative;
+        }
+        .options-menu {
+            position: fixed;
+            background: #333;
+            border-radius: 5px;
+            padding: 10px;
+            display: none;
+            z-index: 1000;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+        }
+        .options-menu.active {
+            display: block;
+        }
+        .options-menu button {
+            display: block;
+            margin: 5px 0;
+            width: 100%;
+        }
+        button {
+            padding: 5px 10px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            color: #000;
+        }
+        .btn-download {
+            background: #0ff;
+        }
+        .btn-share {
+            background: #0f0;
+        }
+        .btn-mute {
+            background: #ff0;
+        }
+        .btn-playback {
+            background: #f0f;
+        }
+        .btn-delete {
+            background: #f00;
+        }
+        button:disabled {
+            background: #555;
+        }
+        audio {
+            width: 100%;
+            accent-color: #0ff;
+        }
+        #auto-status {
+            margin-top: 10px;
+            font-style: italic;
+        }
+        .slider-container {
+            margin-top: 10px;
+            font-size: 12px;
+        }
+        .slider-container label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        input[type="range"] {
+            width: 100%;
+            accent-color: #0ff;
+        }
+        .slider-value {
+            margin-left: 5px;
+        }
+        .control-container {
+            padding: 10px;
+            text-align: center;
+        }
+        .spacer {
+            border: 0.5px solid #333;
+            margin: 10px 0;
+        }
+        .kebab-menu {
+            background: none;
+            border: none;
+            color: #0ff;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 0 10px;
+            line-height: 1;
+        }
+        .kebab-menu:hover {
+            color: #fff;
+        }
+        .recording-audio {
+            position: relative;
+        }
+        .custom-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 5px;
+        }
+        .custom-controls button {
+            padding: 5px 10px;
+        }
+        .custom-controls input[type="range"] {
+            width: 80px;
+        }
+        .progress-container {
+            flex-grow: 1;
+            position: relative;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 5px;
+            background: #333;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .progress-fill {
+            height: 100%;
+            background: #0ff;
+            border-radius: 3px;
+            width: 0%;
+        }
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #333;
+            color: #fff;
+            padding: 10px 20px;
+            border-radius: 5px;
+            z-index: 2000;
+            display: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .toast.show {
+            display: block;
+            opacity: 1;
+        }
+        .toast.error {
+            background: #f00;
+        }
+        .toast.success {
+            background: #0f0;
+        }
+        #spectrogram {
+            width: 100%;
+            height: 100px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="logo">Sound Meter</div>
+        <nav class="menu">
+            <ul>
+                <li><a href="/">Home</a></li>
+                <li><a href="#">Settings</a></li>
+                <li><a href="#">Logout</a></li>
+            </ul>
+        </nav>
+    </header>
+    <div class="container">
+        <div id="middle" class="section d1">
+            <div id="meter-container">
+                <div id="meter">
+                    <div id="wave" style="height: 0%;"></div>
+                    <div id="particles"></div>
+                </div>
+            </div>
+            <p id="amplitude">Amplitude: 0 dB</p>
+            <canvas id="spectrogram"></canvas>
+            <div class="control-container">
+                <button id="start-record">Start Recording</button>
+                <button id="stop-record" disabled>Stop Recording</button>
+                <p id="auto-status">Auto-recording: Idle</p>
+            </div>
+            <hr class="spacer">
+            <div class="slider-container">
+                <label for="threshold-slider">Threshold <span class="slider-value" id="threshold-value">-40.0</span> dB</label>
+                <input type="range" id="threshold-slider" min="-100" max="0" step="0.1" value="-40.0">
+            </div>
+            <div class="slider-container">
+                <label for="min-duration-slider">Min Duration <span class="slider-value" id="min-duration-value">5.0</span> s</label>
+                <input type="range" id="min-duration-slider" min="1" max="60" step="0.1" value="5.0">
+            </div>
+            <div class="slider-container">
+                <label for="max-duration-slider">Max Duration <span class="slider-value" id="max-duration-value">30.0</span> s</label>
+                <input type="range" id="max-duration-slider" min="1" max="60" step="0.1" value="30.0">
+            </div>
+            <div class="slider-container">
+                <label for="silence-timeout-slider">Silence Timeout <span class="slider-value" id="silence-timeout-value">2.0</span> s</label>
+                <input type="range" id="silence-timeout-slider" min="0.5" max="10" step="0.1" value="2.0">
+            </div>
+        </div>
+        <div id="right" class="section d2">
+            <h2>Recordings</h2>
+            <div id="recordings-list"></div>
+        </div>
+        <div id="left" class="section d3">
+            <h2>Mic Status</h2>
+            <p id="mic-status">Loading...</p>
+            <h2>System Status</h2>
+            <p id="system-status">Loading...</p>
+            <h2>Equipment/Hardware</h2>
+            <pre id="hardware">Loading...</pre>
+            <h2>Logs</h2>
+            <div id="logs"></div>
+        </div>
+    </div>
+    <div id="toast" class="toast"></div>
+    <script>
+        const wsUrl = window.location.origin.replace('http', 'ws') + '/ws/sound-meter';
+        const ws = new WebSocket(wsUrl);
+        const wave = document.getElementById("wave");
+        const ampText = document.getElementById("amplitude");
+        const particlesDiv = document.getElementById("particles");
+        const logsDiv = document.getElementById("logs");
+        const recordingsList = document.getElementById("recordings-list");
+        const startBtn = document.getElementById("start-record");
+        const stopBtn = document.getElementById("stop-record");
+        const autoStatus = document.getElementById("auto-status");
+        const toast = document.getElementById("toast");
+        let normalized = 0;
+        let peak = 0;
+        let threshold = -40;
+
+        // Spectrogram setup
+        let audioCtx, analyser, dataArray, canvas, canvasCtx;
+        async function initSpectrogram() {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const source = audioCtx.createMediaStreamSource(stream);
+            analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 2048;
+            source.connect(analyser);
+            dataArray = new Uint8Array(analyser.frequencyBinCount);
+            canvas = document.getElementById('spectrogram');
+            canvasCtx = canvas.getContext('2d');
+            drawSpectrogram();
+        }
+        function drawSpectrogram() {
+            analyser.getByteFrequencyData(dataArray);
+            canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+            const barWidth = (canvas.width / dataArray.length) * 2.5;
+            let x = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+                const barHeight = dataArray[i] / 2;
+                canvasCtx.fillStyle = `rgb(${barHeight + 100}, 50, 50)`;
+                canvasCtx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+                x += barWidth + 1;
+            }
+            requestAnimationFrame(drawSpectrogram);
+        }
+        initSpectrogram();
+
+        function showToast(message, type = 'success') {
+            toast.textContent = message;
+            toast.className = `toast show ${type}`;
+            setTimeout(() => {
+                toast.className = 'toast';
+            }, 3000);
+        }
+
+        function logMessage(msg) {
+            const logEntry = document.createElement('p');
+            logEntry.textContent = new Date().toLocaleTimeString() + ': ' + msg;
+            logsDiv.appendChild(logEntry);
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+        }
+
+        function updateParams(params) {
+            fetch('/update-params', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(params)
+            })
+            .then(res => res.json())
+            .then(data => logMessage('Parameters updated'))
+            .catch(err => logMessage('Update params error: ' + err.message));
+        }
+
+        ws.onopen = () => logMessage("WebSocket connected");
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.error) {
+                logMessage(`Error: ${data.error}`);
+                return;
+            }
+            if (data.log) {
+                logMessage(data.log);
+            }
+            if (data.warning) {
+                logMessage(`Warning: ${data.warning}`);
+            }
+            if (data.auto_recording_config) {
+                threshold = data.auto_recording_config.threshold;
+                document.getElementById("threshold-value").textContent = threshold.toFixed(1);
+                document.getElementById("threshold-slider").value = threshold;
+                document.getElementById("min-duration-value").textContent = data.auto_recording_config.min_duration.toFixed(1);
+                document.getElementById("min-duration-slider").value = data.auto_recording_config.min_duration;
+                document.getElementById("max-duration-value").textContent = data.auto_recording_config.max_duration.toFixed(1);
+                document.getElementById("max-duration-slider").value = data.auto_recording_config.max_duration;
+                document.getElementById("silence-timeout-value").textContent = data.auto_recording_config.silence_timeout.toFixed(1);
+                document.getElementById("silence-timeout-slider").value = data.auto_recording_config.silence_timeout;
+                logMessage(`Auto-recording config: Threshold ${data.auto_recording_config.threshold} dB, Min duration ${data.auto_recording_config.min_duration}s, Max duration ${data.auto_recording_config.max_duration}s, Silence timeout ${data.auto_recording_config.silence_timeout}s`);
+            }
+            if (data.amplitude_db !== undefined) {
+                console.debug(`Amplitude: ${data.amplitude_db.toFixed(2)} dB`);
+                const db = data.amplitude_db;
+                ampText.textContent = `Amplitude: ${db.toFixed(2)} dB (Threshold: ${threshold} dB)`;
+                const ampElement = document.getElementById("amplitude");
+                if (db > threshold) {
+                    ampElement.className = "above-threshold";
+                } else if (db > threshold - 5) {
+                    ampElement.className = "near-threshold";
+                } else {
+                    ampElement.className = "";
+                }
+                const adjustedDb = Math.max(db, -60);
+                normalized = Math.min(Math.max((adjustedDb + 60) / 60 * 100, 0), 100);
+                peak = normalized;
+                wave.style.height = `${normalized}%`;
+                wave.style.clipPath = `polygon(0 100%, 10% ${100 - peak*0.8}%, 20% ${100 - peak*1.2}%, 30% ${100 - peak*1.5}%, 40% ${100 - peak*1.8}%, 50% ${100 - peak*2}%, 60% ${100 - peak*1.8}%, 70% ${100 - peak*1.5}%, 80% ${100 - peak*1.2}%, 90% ${100 - peak*0.8}%, 100% 100%)`;
+                if (db > threshold - 5) {
+                    wave.style.background = 'linear-gradient(to right, #ff0, #f80, #ff0)';
+                } else {
+                    wave.style.background = 'linear-gradient(to right, cyan, lime, cyan)';
+                }
+            }
+            if (data.event === "auto_recording_started") {
+                logMessage(`Auto-recording started: ${data.filename}`);
+                autoStatus.textContent = `Auto-recording: Active (${data.filename})`;
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+            }
+            if (data.event === "auto_recording_stopped") {
+                logMessage(`Auto-recording stopped: ${data.filename} (${data.duration.toFixed(1)}s)`);
+                autoStatus.textContent = "Auto-recording: Idle";
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+                loadRecordings();
+            }
+            if (data.event === "auto_recording_discarded") {
+                logMessage(`Auto-recording discarded: ${data.filename} (too short, ${data.duration.toFixed(1)}s)`);
+                autoStatus.textContent = "Auto-recording: Idle";
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+            }
+        };
+
+        ws.onerror = (error) => {
+            console.error("WebSocket error:", error);
+            logMessage("WebSocket error");
+        };
+        ws.onclose = () => {
+            console.log("WebSocket closed");
+            logMessage("WebSocket closed");
+        };
+
+        function getWaveClipY(x, peak) {
+            const xPoints = [0,10,20,30,40,50,60,70,80,90,100];
+            const multipliers = [0,1,1.5,2,2.5,3,2.5,2,1.5,1,0];
+            const yPoints = xPoints.map((xp, i) => 100 - peak * multipliers[i]);
+            for (let i = 0; i < xPoints.length - 1; i++) {
+                if (x >= xPoints[i] && x < xPoints[i + 1]) {
+                    const frac = (x - xPoints[i]) / (xPoints[i + 1] - xPoints[i]);
+                    return yPoints[i] + frac * (yPoints[i + 1] - yPoints[i]);
+                }
+            }
+            return 100;
+        }
+
+        class Particle {
+            constructor(x, y, size) {
+                this.element = document.createElement("div");
+                this.element.className = "particle";
+                this.element.style.width = this.element.style.height = `${size}px`;
+                this.element.style.left = `${x}%`;
+                this.element.style.top = `${y}%`;
+                particlesDiv.appendChild(this.element);
+                this.x = x;
+                this.y = y;
+                this.vx = (Math.random() - 0.5) * 0.02;
+                this.vy = (Math.random() - 0.5) * 0.02;
+                this.size = size;
+            }
+            update(waveHeight, peak) {
+                this.vy += 0.001;
+                this.vx *= 0.995;
+                this.vy *= 0.995;
+                const clipY = getWaveClipY(this.x, peak);
+                const waveTop = 100 - waveHeight;
+                const surfaceY = waveTop + (clipY / 100 * waveHeight);
+                if (this.y + this.size / 2 > surfaceY) {
+                    this.vy -= 0.1;
+                }
+                this.x += this.vx;
+                this.y += this.vy;
+                if (this.x < 0 || this.x > 100) this.vx *= -1;
+                if (this.y < 0) { this.y = 0; this.vy *= -0.8; }
+                if (this.y > 100) { this.y = 100; this.vy *= -0.8; }
+                this.element.style.left = `${this.x}%`;
+                this.element.style.top = `${this.y}%`;
+            }
+        }
+
+        const particles = [];
+        for (let i = 0; i < 20; i++) {
+            const size = Math.random() * 2 + 1;
+            const x = Math.random() * 100;
+            const y = Math.random() * 100;
+            particles.push(new Particle(x, y, size));
+            if (Math.random() < 0.3) {
+                for (let j = 0; j < 3; j++) {
+                    const cx = x + (Math.random() - 0.5) * 2;
+                    const cy = y + (Math.random() - 0.5) * 2;
+                    particles.push(new Particle(cx, cy, size * 0.8));
+                }
+            }
+        }
+
+        function animate() {
+            particles.forEach(p => p.update(normalized, peak));
+            requestAnimationFrame(animate);
+        }
+        animate();
+
+        // Load status
+        fetch('/status')
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById('mic-status').textContent = data.mic_status;
+                document.getElementById('system-status').textContent = data.system_status;
+                document.getElementById('hardware').textContent = JSON.stringify(data.hardware, null, 2);
+            })
+            .catch(err => {
+                console.error(err);
+                logMessage('Failed to load status: ' + err.message);
+            });
+
+        // Load recordings
+        function loadRecordings() {
+            fetch('/records')
+                .then(res => res.json())
+                .then(data => {
+                    recordingsList.innerHTML = '';
+                    data.forEach(file => {
+                        const card = document.createElement('div');
+                        card.className = 'recording-card';
+                        card.dataset.filename = file.file;
+                        card.innerHTML = `
+                            <div class="recording-header">
+                                <span>${file.file}</span>
+                                <span>${file.date} ${file.time}</span>
+                            </div>
+                            <div class="recording-audio">
+                                <audio id="audio-${file.file.replace('.', '-')}" src="/recordings/${file.file}">
+                                    Your browser does not support the audio element.
+                                </audio>
+                                <div class="custom-controls">
+                                    <button class="play-btn" onclick="playPause('audio-${file.file.replace('.', '-')}')">Play</button>
+                                    <input type="range" class="volume-slider" min="0" max="1" step="0.01" value="1" oninput="setVolume('audio-${file.file.replace('.', '-')}', this.value)">
+                                    <div class="progress-container" onclick="seekAudio('audio-${file.file.replace('.', '-')}', event)">
+                                        <div class="progress-bar">
+                                            <div class="progress-fill" id="progress-fill-${file.file.replace('.', '-')}"></div>
+                                        </div>
+                                    </div>
+                                    <button class="kebab-menu" onclick="showOptionsMenu(event, '${file.file}')">⋮</button>
+                                </div>
+                            </div>
+                        `;
+                        recordingsList.appendChild(card);
+                        const audio = document.getElementById(`audio-${file.file.replace('.', '-')}`);
+                        audio.addEventListener('timeupdate', () => updateProgress(audio, `progress-fill-${file.file.replace('.', '-')}`));
+                    });
+                })
+                .catch(err => {
+                    console.error(err);
+                    logMessage('Failed to load recordings: ' + err.message);
+                });
+        }
+        loadRecordings();
+
+        function playPause(id) {
+            const audio = document.getElementById(id);
+            const btn = audio.parentElement.querySelector('.play-btn');
+            if (audio.paused) {
+                audio.play();
+                btn.textContent = 'Pause';
+            } else {
+                audio.pause();
+                btn.textContent = 'Play';
+            }
+        }
+
+        function setVolume(id, value) {
+            const audio = document.getElementById(id);
+            audio.volume = value;
+        }
+
+        function updateProgress(audio, fillId) {
+            const fill = document.getElementById(fillId);
+            const progress = (audio.currentTime / audio.duration) * 100 || 0;
+            fill.style.width = `${progress}%`;
+        }
+
+        function seekAudio(id, event) {
+            const audio = document.getElementById(id);
+            const bar = event.currentTarget.querySelector('.progress-bar');
+            const rect = bar.getBoundingClientRect();
+            const pos = (event.clientX - rect.left) / rect.width;
+            audio.currentTime = pos * audio.duration;
+        }
+
+        function showOptionsMenu(event, file) {
+            let menu = document.querySelector('.options-menu');
+            if (!menu) {
+                menu = document.createElement('div');
+                menu.className = 'options-menu';
+                document.body.appendChild(menu);
+            }
+            const rect = event.target.getBoundingClientRect();
+            menu.style.top = `${rect.bottom + window.scrollY}px`;
+            menu.style.left = `${rect.left + window.scrollX}px`;
+
+            if (menu.classList.contains('active')) {
+                menu.classList.remove('active');
+                return;
+            }
+
+            menu.innerHTML = `
+                <button class="btn-download" onclick="downloadRecording('/recordings/${file}')">Download</button>
+                <button class="btn-share" onclick="shareRecording('/recordings/${file}')">Share</button>
+                <button class="btn-mute" onclick="toggleMute('audio-${file.replace('.', '-')}')">Mute</button>
+                <button class="btn-playback" onclick="togglePlaybackSpeed('audio-${file.replace('.', '-')}')">2x</button>
+                <button class="btn-delete" onclick="deleteRecording('${file}')">Delete</button>
+            `;
+            menu.classList.add('active');
+
+            const closeMenu = (e) => {
+                if (!menu.contains(e.target)) {
+                    menu.classList.remove('active');
+                    document.removeEventListener('click', closeMenu);
+                }
+            };
+            setTimeout(() => {
+                document.addEventListener('click', closeMenu);
+            }, 0);
+        }
+
+        function downloadRecording(url) {
+            window.location.href = url;
+        }
+
+        function shareRecording(url) {
+            const shareText = `Check out this recording: ${window.location.origin}${url}`;
+            if (navigator.share) {
+                navigator.share({
+                    title: 'Recording Share',
+                    text: shareText,
+                    url: window.location.origin + url
+                }).catch(console.error);
+            } else {
+                prompt('Copy this link to share:', shareText);
+            }
+        }
+
+        function toggleMute(id) {
+            const audio = document.getElementById(id);
+            audio.muted = !audio.muted;
+        }
+
+        function togglePlaybackSpeed(id) {
+            const audio = document.getElementById(id);
+            audio.playbackRate = audio.playbackRate === 1 ? 2 : 1;
+        }
+
+        function deleteRecording(file) {
+            if (confirm('Are you sure you want to delete this recording?')) {
+                fetch(`/api/records/${file}`, {method: 'DELETE'})
+                    .then(res => {
+                        if (res.ok) {
+                            return res.json();
+                        } else {
+                            return res.json().then(data => {
+                                throw new Error(data.detail || 'Unknown error');
+                            });
+                        }
+                    })
+                    .then(data => {
+                        const card = document.querySelector(`.recording-card[data-filename="${file}"]`);
+                        if (card) {
+                            card.remove();
+                        }
+                        logMessage('Recording deleted');
+                        showToast(`Recording ${file} deleted`, 'success');
+                    })
+                    .catch(err => {
+                        logMessage('Delete error: ' + err.message);
+                        showToast('Failed to delete recording: ' + err.message, 'error');
+                    });
+            }
+        }
+
+        startBtn.onclick = () => {
+            fetch('/start-record', {method: 'POST'})
+                .then(res => res.json())
+                .then(data => {
+                    logMessage(data.status);
+                    startBtn.disabled = true;
+                    stopBtn.disabled = false;
+                })
+                .catch(err => logMessage('Start recording error: ' + err.message));
+        };
+
+        stopBtn.onclick = () => {
+            fetch('/stop-record', {method: 'POST'})
+                .then(res => res.json())
+                .then(data => {
+                    logMessage(data.status);
+                    startBtn.disabled = false;
+                    stopBtn.disabled = true;
+                    loadRecordings();
+                })
+                .catch(err => logMessage('Stop recording error: ' + err.message));
+        };
+
+        // Slider updates
+        document.getElementById("threshold-slider").addEventListener("input", (e) => {
+            const value = parseFloat(e.target.value);
+            document.getElementById("threshold-value").textContent = value.toFixed(1);
+            threshold = value;
+            updateParams({auto_record_threshold: value});
+        });
+        document.getElementById("min-duration-slider").addEventListener("input", (e) => {
+            const value = parseFloat(e.target.value);
+            document.getElementById("min-duration-value").textContent = value.toFixed(1);
+            updateParams({min_recording_duration: value});
+        });
+        document.getElementById("max-duration-slider").addEventListener("input", (e) => {
+            const value = parseFloat(e.target.value);
+            document.getElementById("max-duration-value").textContent = value.toFixed(1);
+            updateParams({max_recording_duration: value});
+        });
+        document.getElementById("silence-timeout-slider").addEventListener("input", (e) => {
+            const value = parseFloat(e.target.value);
+            document.getElementById("silence-timeout-value").textContent = value.toFixed(1);
+            updateParams({silence_timeout: value});
+        });
+    </script>
+</body>
+</html>
