@@ -6,15 +6,19 @@ __pycache__/
 .Python
 env/
 venv/
+aenv/
 *.egg-info/
 dist/
 build/
 
 # Recordings
-/recordings/
+recordings/
 
 # IDE and OS
 .idea/
 .vscode/
 *.swp
 .DS_Store
+
+# Large files
+*.so
