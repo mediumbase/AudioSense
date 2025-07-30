@@ -14,6 +14,7 @@ from asyncio import Lock
 from typing import Optional
 from starlette.websockets import WebSocketState
 import librosa
+import json
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -25,10 +26,10 @@ app.mount("/recordings", StaticFiles(directory="recordings"), name="recordings")
 DEVICE = os.getenv("AUDIO_DEVICE", "default")
 SAMPLE_RATE = int(os.getenv("SAMPLE_RATE", 44100))
 BLOCK_SIZE = int(os.getenv("BLOCK_SIZE", 1024))
-auto_record_threshold = float(os.getenv("AUTO_RECORD_THRESHOLD", -40.0))
-min_recording_duration = float(os.getenv("MIN_RECORDING_DURATION", 5.0))
-silence_timeout = float(os.getenv("SILENCE_TIMEOUT", 2.0))
-max_recording_duration = float(os.getenv("MAX_RECORDING_DURATION", 30.0))
+auto_record_threshold = float(os.getenv("AUTO_RECORD_THRESHOLD", -30.0))
+min_recording_duration = float(os.getenv("MIN_RECORDING_DURATION", 15.0))
+silence_timeout = float(os.getenv("SILENCE_TIMEOUT", 5.0))
+max_recording_duration = float(os.getenv("MAX_RECORDING_DURATION", 100.0))
 
 class RecordingState:
     def __init__(self):
@@ -139,14 +140,33 @@ async def audio_callback(indata, frames, time, status, websocket):
                     await websocket.send_json({"warning": str(status), "log": str(status)})
                 except RuntimeError:
                     logger.debug("Ignored send after close")
+        
+        # Calculate amplitude and RMS
         rms = np.sqrt(np.mean(indata**2))
         db = 20 * np.log10(rms) if rms > 0 else -100
+        
+        # Calculate FFT for spectrogram
+        fft_data = np.fft.rfft(indata[:, 0])
+        fft_magnitude = np.abs(fft_data)
+        fft_freq = np.fft.rfftfreq(len(indata[:, 0]), d=1.0/SAMPLE_RATE)
+        
+        # Prepare FFT data for frontend (downsample to reduce bandwidth)
+        fft_downsample_factor = 8
+        fft_magnitude_downsampled = fft_magnitude[::fft_downsample_factor]
+        fft_freq_downsampled = fft_freq[::fft_downsample_factor]
+        
         if websocket.client_state == WebSocketState.CONNECTED:
             try:
-                await websocket.send_json({"amplitude_db": float(db)})
+                await websocket.send_json({
+                    "amplitude_db": float(db),
+                    "fft_magnitude": fft_magnitude_downsampled.tolist(),
+                    "fft_freq": fft_freq_downsampled.tolist()
+                })
             except RuntimeError:
                 logger.debug("Ignored send after close")
+        
         await check_auto_recording(db, websocket)
+        
         if recording_state.is_recording and recording_state.recorder:
             int_data = (indata * 32767).astype(np.int16)
             recording_state.recorder.writeframes(int_data.tobytes())
@@ -304,9 +324,19 @@ async def get_features(filename: str):
     path = f"recordings/{filename}"
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="File not found")
-    y, sr = librosa.load(path)
-    mfcc = librosa.feature.mfcc(y=y, sr=sr)
-    return {"mfcc": mfcc.tolist()}
+    try:
+        y, sr = librosa.load(path)
+        mfcc = librosa.feature.mfcc(y=y, sr=sr)
+        spectral_centroid = librosa.feature.spectral_centroid(y=y, sr=sr)
+        chroma = librosa.feature.chroma_stft(y=y, sr=sr)
+        return {
+            "mfcc": mfcc.tolist(),
+            "spectral_centroid": spectral_centroid.tolist(),
+            "chroma": chroma.tolist(),
+            "duration": librosa.get_duration(y=y, sr=sr)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing audio: {str(e)}")
 
 if __name__ == "__main__":
     os.makedirs("recordings", exist_ok=True)

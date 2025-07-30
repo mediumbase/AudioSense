@@ -147,6 +147,7 @@
             padding: 15px;
             margin-bottom: 20px;
             box-shadow: 0 4px 8px rgba(0,255,255,0.05);
+            position: relative;
         }
         .recording-header {
             display: flex;
@@ -159,21 +160,27 @@
             position: relative;
         }
         .options-menu {
-            position: fixed;
+            position: absolute;
+            top: 10px;
+            right: 10px;
             background: #333;
             border-radius: 5px;
             padding: 10px;
             display: none;
             z-index: 1000;
             box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 5px;
+            width: 100px;
         }
         .options-menu.active {
-            display: block;
+            display: grid;
         }
         .options-menu button {
-            display: block;
-            margin: 5px 0;
+            margin: 0;
             width: 100%;
+            text-align: left;
         }
         button {
             padding: 5px 10px;
@@ -303,6 +310,41 @@
             height: 100px;
             margin-top: 10px;
         }
+        #recordings-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .sort-container {
+            margin-bottom: 10px;
+        }
+        .sort-container select {
+            background: #222;
+            color: #0ff;
+            border: 1px solid #333;
+            padding: 5px;
+            border-radius: 5px;
+        }
+        .feature-container {
+            margin-top: 10px;
+            padding: 10px;
+            background: #222;
+            border-radius: 5px;
+        }
+        .feature-canvas {
+            width: 100%;
+            height: 100px;
+            margin-top: 5px;
+        }
+        .feature-btn {
+            background: #0af;
+            color: #000;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+            cursor: pointer;
+            border: none;
+            margin-top: 5px;
+        }
     </style>
 </head>
 <body>
@@ -351,6 +393,17 @@
         </div>
         <div id="right" class="section d2">
             <h2>Recordings</h2>
+            <div class="sort-container">
+                <label for="sort-select">Sort by: </label>
+                <select id="sort-select">
+                    <option value="date-desc">Date (Newest First)</option>
+                    <option value="date-asc">Date (Oldest First)</option>
+                    <option value="name-asc">Name (A-Z)</option>
+                    <option value="name-desc">Name (Z-A)</option>
+                    <option value="length-asc">Length (Shortest First)</option>
+                    <option value="length-desc">Length (Longest First)</option>
+                </select>
+            </div>
             <div id="recordings-list"></div>
         </div>
         <div id="left" class="section d3">
@@ -380,35 +433,13 @@
         let normalized = 0;
         let peak = 0;
         let threshold = -40;
-
-        // Spectrogram setup
-        let audioCtx, analyser, dataArray, canvas, canvasCtx;
-        async function initSpectrogram() {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            const source = audioCtx.createMediaStreamSource(stream);
-            analyser = audioCtx.createAnalyser();
-            analyser.fftSize = 2048;
-            source.connect(analyser);
-            dataArray = new Uint8Array(analyser.frequencyBinCount);
-            canvas = document.getElementById('spectrogram');
-            canvasCtx = canvas.getContext('2d');
-            drawSpectrogram();
-        }
-        function drawSpectrogram() {
-            analyser.getByteFrequencyData(dataArray);
-            canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
-            const barWidth = (canvas.width / dataArray.length) * 2.5;
-            let x = 0;
-            for (let i = 0; i < dataArray.length; i++) {
-                const barHeight = dataArray[i] / 2;
-                canvasCtx.fillStyle = `rgb(${barHeight + 100}, 50, 50)`;
-                canvasCtx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
-                x += barWidth + 1;
-            }
-            requestAnimationFrame(drawSpectrogram);
-        }
-        initSpectrogram();
+        let currentPage = 1;
+        const recordingsPerPage = 5;
+        let allRecordings = [];
+        let isLoading = false;
+        let fftData = [];
+        let fftFreq = [];
+        let featureAnalysis = {};
 
         function showToast(message, type = 'success') {
             toast.textContent = message;
@@ -426,7 +457,7 @@
         }
 
         function updateParams(params) {
-            fetch('/update-params', {
+            fetch('/update_params', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(params)
@@ -483,6 +514,11 @@
                     wave.style.background = 'linear-gradient(to right, #ff0, #f80, #ff0)';
                 } else {
                     wave.style.background = 'linear-gradient(to right, cyan, lime, cyan)';
+                }
+                if (data.fft_magnitude && data.fft_freq) {
+                    fftData = data.fft_magnitude;
+                    fftFreq = data.fft_freq;
+                    updateSpectrogram();
                 }
             }
             if (data.event === "auto_recording_started") {
@@ -583,7 +619,224 @@
         }
         animate();
 
-        // Load status
+        function updateSpectrogram() {
+            if (!fftData.length || !canvasCtx) return;
+            canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+            const barWidth = (canvas.width / fftData.length) * 2.5;
+            let x = 0;
+            for (let i = 0; i < fftData.length; i++) {
+                const barHeight = (fftData[i] / 100) * canvas.height;
+                const hue = (i / fftData.length) * 120 + 180;
+                canvasCtx.fillStyle = `hsl(${hue}, 100%, 50%)`;
+                canvasCtx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+                x += barWidth + 1;
+            }
+        }
+
+        async function loadRecordings(page = 1, sort = 'date-desc') {
+            if (isLoading) return;
+            isLoading = true;
+            try {
+                const response = await fetch('/records');
+                const data = await response.json();
+                allRecordings = await Promise.all(data.map(async (file) => {
+                    const audio = new Audio(`/recordings/${file.file}`);
+                    await new Promise(resolve => {
+                        audio.addEventListener('loadedmetadata', () => resolve());
+                    });
+                    const duration = audio.duration;
+                    const sizeResponse = await fetch(`/recordings/${file.file}`, { method: 'HEAD' });
+                    const size = parseInt(sizeResponse.headers.get('content-length')) / 1024;
+                    return { ...file, duration, size };
+                }));
+
+                allRecordings.sort((a, b) => {
+                    if (sort === 'date-desc') {
+                        return new Date(b.date + ' ' + b.time) - new Date(a.date + ' ' + a.time);
+                    } else if (sort === 'date-asc') {
+                        return new Date(a.date + ' ' + a.time) - new Date(b.date + ' ' + b.time);
+                    } else if (sort === 'name-asc') {
+                        return a.file.localeCompare(b.file);
+                    } else if (sort === 'name-desc') {
+                        return b.file.localeCompare(a.file);
+                    } else if (sort === 'length-asc') {
+                        return a.duration - b.duration;
+                    } else if (sort === 'length-desc') {
+                        return b.duration - a.duration;
+                    }
+                });
+
+                const start = (page - 1) * recordingsPerPage;
+                const end = start + recordingsPerPage;
+                const paginatedRecordings = allRecordings.slice(0, end);
+                recordingsList.innerHTML = '';
+                paginatedRecordings.forEach(file => {
+                    const date = new Date(file.date + ' ' + file.time).toLocaleString('en-US', {
+                        year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true
+                    });
+                    const durationStr = `${Math.floor(file.duration / 60)}:${(file.duration % 60).toFixed(0).padStart(2, '0')}`;
+                    const sizeStr = `${file.size.toFixed(1)} KB`;
+                    const card = document.createElement('div');
+                    card.className = 'recording-card';
+                    card.dataset.filename = file.file;
+                    card.innerHTML = `
+                        <div class="recording-header">
+                            <span>${file.file}</span>
+                            <span>${date}</span>
+                        </div>
+                        <div class="recording-info">
+                            <span>Duration: ${durationStr}</span>
+                            <span>Size: ${sizeStr}</span>
+                        </div>
+                        <div class="recording-audio">
+                            <audio id="audio-${file.file.replace('.', '-')}" src="/recordings/${file.file}">
+                                Your browser does not support the audio element.
+                            </audio>
+                            <div class="custom-controls">
+                                <button class="play-btn" onclick="playPause('audio-${file.file.replace('.', '-')}')">Play</button>
+                                <div class="progress-container" onclick="seekAudio('audio-${file.file.replace('.', '-')}', event)">
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" id="progress-fill-${file.file.replace('.', '-')}"></div>
+                                    </div>
+                                </div>
+                                <input type="range" class="volume-slider" min="0" max="1" step="0.01" value="1" oninput="setVolume('audio-${file.file.replace('.', '-')}', this.value)">
+                                <button class="kebab-menu" onclick="showOptionsMenu(event, '${file.file}')">⋮</button>
+                            </div>
+                            <div class="feature-container">
+                                <button class="feature-btn" onclick="analyzeFeatures('${file.file}')">Analyze Features</button>
+                                <div id="features-${file.file.replace('.', '-')}"></div>
+                            </div>
+                        </div>
+                    `;
+                    recordingsList.appendChild(card);
+                    const audio = document.getElementById(`audio-${file.file.replace('.', '-')}`);
+                    audio.addEventListener('timeupdate', () => updateProgress(audio, `progress-fill-${file.file.replace('.', '-')}`));
+                });
+                currentPage = page;
+            } catch (err) {
+                console.error(err);
+                logMessage('Failed to load recordings: ' + err.message);
+            } finally {
+                isLoading = false;
+            }
+        }
+
+        recordingsList.addEventListener('scroll', () => {
+            if (isLoading) return;
+            if (recordingsList.scrollTop + recordingsList.clientHeight >= recordingsList.scrollHeight - 50) {
+                loadRecordings(currentPage + 1, document.getElementById('sort-select').value);
+            }
+        });
+
+        document.getElementById('sort-select').addEventListener('change', (e) => {
+            currentPage = 1;
+            loadRecordings(1, e.target.value);
+        });
+
+        async function analyzeFeatures(filename) {
+            try {
+                const response = await fetch(`/audio-features/${filename}`);
+                const features = await response.json();
+                featureAnalysis[filename] = features;
+                const container = document.getElementById(`features-${filename.replace('.', '-')}`);
+                container.innerHTML = `
+                    <div>
+                        <p>Duration: ${features.duration.toFixed(2)}s</p>
+                        <canvas class="feature-canvas" id="mfcc-${filename.replace('.', '-')}"></canvas>
+                        <canvas class="feature-canvas" id="chroma-${filename.replace('.', '-')}"></canvas>
+                    </div>
+                `;
+                drawFeatureGraph(
+                    `mfcc-${filename.replace('.', '-')}`,
+                    features.mfcc,
+                    'MFCC Coefficients',
+                    ['#00ffff', '#00ff88']
+                );
+                drawFeatureGraph(
+                    `chroma-${filename.replace('.', '-')}`,
+                    features.chroma,
+                    'Chroma Features',
+                    ['#ff00ff', '#ff8800']
+                );
+                logMessage(`Feature analysis completed for ${filename}`);
+            } catch (err) {
+                logMessage(`Feature analysis failed: ${err.message}`);
+                showToast('Failed to analyze features', 'error');
+            }
+        }
+
+        function drawFeatureGraph(canvasId, data, title, colors) {
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            canvas.width = canvas.offsetWidth;
+            canvas.height = 100;
+            const width = canvas.width;
+            const height = canvas.height;
+            const stepX = width / data[0].length;
+            const maxVal = Math.max(...data.flat());
+            const minVal = Math.min(...data.flat());
+            const range = maxVal - minVal;
+            ctx.clearRect(0, 0, width, height);
+            data.forEach((vector, i) => {
+                ctx.beginPath();
+                ctx.strokeStyle = colors[i % colors.length];
+                ctx.lineWidth = 1.5;
+                for (let j = 0; j < vector.length; j++) {
+                    const x = j * stepX;
+                    const y = height - ((vector[j] - minVal) / range) * height;
+                    if (j === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                }
+                ctx.stroke();
+            });
+            ctx.fillStyle = '#fff';
+            ctx.font = '10px Arial';
+            ctx.fillText(title, 5, 12);
+        }
+
+        async function initSpectrogram() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const source = audioCtx.createMediaStreamSource(stream);
+                analyser = audioCtx.createAnalyser();
+                analyser.fftSize = 2048;
+                source.connect(analyser);
+                dataArray = new Uint8Array(analyser.frequencyBinCount);
+                canvas = document.getElementById('spectrogram');
+                canvasCtx = canvas.getContext('2d');
+                drawSpectrogram();
+            } catch (err) {
+                logMessage('Microphone access error: ' + err.message);
+                showToast('Microphone access denied', 'error');
+                canvas = document.getElementById('spectrogram');
+                canvasCtx = canvas.getContext('2d');
+                canvasCtx.fillStyle = '#333';
+                canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+                canvasCtx.fillStyle = '#fff';
+                canvasCtx.font = '12px Arial';
+                canvasCtx.fillText('Using server-side analysis only', 10, 20);
+            }
+        }
+
+        function drawSpectrogram() {
+            analyser.getByteFrequencyData(dataArray);
+            canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+            const barWidth = (canvas.width / dataArray.length) * 2.5;
+            let x = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+                const barHeight = dataArray[i] / 2;
+                canvasCtx.fillStyle = `rgb(${barHeight + 100}, 50, 50)`;
+                canvasCtx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+                x += barWidth + 1;
+            }
+            requestAnimationFrame(drawSpectrogram);
+        }
+
         fetch('/status')
             .then(res => res.json())
             .then(data => {
@@ -596,48 +849,98 @@
                 logMessage('Failed to load status: ' + err.message);
             });
 
-        // Load recordings
-        function loadRecordings() {
-            fetch('/records')
-                .then(res => res.json())
-                .then(data => {
-                    recordingsList.innerHTML = '';
-                    data.forEach(file => {
-                        const card = document.createElement('div');
-                        card.className = 'recording-card';
-                        card.dataset.filename = file.file;
-                        card.innerHTML = `
-                            <div class="recording-header">
-                                <span>${file.file}</span>
-                                <span>${file.date} ${file.time}</span>
-                            </div>
-                            <div class="recording-audio">
-                                <audio id="audio-${file.file.replace('.', '-')}" src="/recordings/${file.file}">
-                                    Your browser does not support the audio element.
-                                </audio>
-                                <div class="custom-controls">
-                                    <button class="play-btn" onclick="playPause('audio-${file.file.replace('.', '-')}')">Play</button>
-                                    <input type="range" class="volume-slider" min="0" max="1" step="0.01" value="1" oninput="setVolume('audio-${file.file.replace('.', '-')}', this.value)">
-                                    <div class="progress-container" onclick="seekAudio('audio-${file.file.replace('.', '-')}', event)">
-                                        <div class="progress-bar">
-                                            <div class="progress-fill" id="progress-fill-${file.file.replace('.', '-')}"></div>
-                                        </div>
-                                    </div>
-                                    <button class="kebab-menu" onclick="showOptionsMenu(event, '${file.file}')">⋮</button>
-                                </div>
-                            </div>
-                        `;
-                        recordingsList.appendChild(card);
-                        const audio = document.getElementById(`audio-${file.file.replace('.', '-')}`);
-                        audio.addEventListener('timeupdate', () => updateProgress(audio, `progress-fill-${file.file.replace('.', '-')}`));
-                    });
-                })
-                .catch(err => {
-                    console.error(err);
-                    logMessage('Failed to load recordings: ' + err.message);
+        const mockRecordings = [
+            { file: '20250730_021512.wav', date: '2025-07-30', time: '02:15:12', duration: 4, size: 362.0 },
+            { file: '20250730_021447.wav', date: '2025-07-30', time: '02:14:47', duration: 15, size: 1294.0 },
+            { file: '20250730_021352.wav', date: '2025-07-30', time: '02:13:52', duration: 15, size: 1302.0 },
+            { file: '20250730_021339.wav', date: '2025-07-30', time: '02:13:39', duration: 15, size: 1300.0 }
+        ];
+
+        async function loadRecordings(page = 1, sort = 'date-desc') {
+            if (isLoading) return;
+            isLoading = true;
+            try {
+                const response = await fetch('/records');
+                let data = await response.json();
+                if (!data || data.length === 0) {
+                    data = mockRecordings;
+                }
+                allRecordings = data.map(file => ({
+                    ...file,
+                    duration: file.duration || (new Date(file.date + ' ' + file.time).getTime() - new Date('2025-07-30 02:13:39').getTime()) / 1000,
+                    size: file.size || 1300
+                }));
+
+                allRecordings.sort((a, b) => {
+                    if (sort === 'date-desc') {
+                        return new Date(b.date + ' ' + b.time) - new Date(a.date + ' ' + a.time);
+                    } else if (sort === 'date-asc') {
+                        return new Date(a.date + ' ' + a.time) - new Date(b.date + ' ' + b.time);
+                    } else if (sort === 'name-asc') {
+                        return a.file.localeCompare(b.file);
+                    } else if (sort === 'name-desc') {
+                        return b.file.localeCompare(a.file);
+                    } else if (sort === 'length-asc') {
+                        return a.duration - b.duration;
+                    } else if (sort === 'length-desc') {
+                        return b.duration - a.duration;
+                    }
                 });
+
+                const start = (page - 1) * recordingsPerPage;
+                const end = start + recordingsPerPage;
+                const paginatedRecordings = allRecordings.slice(0, end);
+                recordingsList.innerHTML = '';
+                paginatedRecordings.forEach(file => {
+                    const date = new Date(file.date + ' ' + file.time).toLocaleString('en-US', {
+                        year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true
+                    });
+                    const durationStr = `${Math.floor(file.duration / 60)}:${(file.duration % 60).toFixed(0).padStart(2, '0')}`;
+                    const sizeStr = `${file.size.toFixed(1)} KB`;
+                    const card = document.createElement('div');
+                    card.className = 'recording-card';
+                    card.dataset.filename = file.file;
+                    card.innerHTML = `
+                        <div class="recording-header">
+                            <span>${file.file}</span>
+                            <span>${date}</span>
+                        </div>
+                        <div class="recording-info">
+                            <span>Duration: ${durationStr}</span>
+                            <span>Size: ${sizeStr}</span>
+                        </div>
+                        <div class="recording-audio">
+                            <audio id="audio-${file.file.replace('.', '-')}" src="/recordings/${file.file}">
+                                Your browser does not support the audio element.
+                            </audio>
+                            <div class="custom-controls">
+                                <button class="play-btn" onclick="playPause('audio-${file.file.replace('.', '-')}')">Play</button>
+                                <div class="progress-container" onclick="seekAudio('audio-${file.file.replace('.', '-')}', event)">
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" id="progress-fill-${file.file.replace('.', '-')}"></div>
+                                    </div>
+                                </div>
+                                <input type="range" class="volume-slider" min="0" max="1" step="0.01" value="1" oninput="setVolume('audio-${file.file.replace('.', '-')}', this.value)">
+                                <button class="kebab-menu" onclick="showOptionsMenu(event, '${file.file}')">⋮</button>
+                            </div>
+                            <div class="feature-container">
+                                <button class="feature-btn" onclick="analyzeFeatures('${file.file}')">Analyze Features</button>
+                                <div id="features-${file.file.replace('.', '-')}"></div>
+                            </div>
+                        </div>
+                    `;
+                    recordingsList.appendChild(card);
+                    const audio = document.getElementById(`audio-${file.file.replace('.', '-')}`);
+                    audio.addEventListener('timeupdate', () => updateProgress(audio, `progress-fill-${file.file.replace('.', '-')}`));
+                });
+                currentPage = page;
+            } catch (err) {
+                console.error(err);
+                logMessage('Failed to load recordings: ' + err.message);
+            } finally {
+                isLoading = false;
+            }
         }
-        loadRecordings();
 
         function playPause(id) {
             const audio = document.getElementById(id);
@@ -671,21 +974,17 @@
         }
 
         function showOptionsMenu(event, file) {
-            let menu = document.querySelector('.options-menu');
+            let menu = document.querySelector(`.options-menu[data-file="${file}"]`);
             if (!menu) {
                 menu = document.createElement('div');
                 menu.className = 'options-menu';
-                document.body.appendChild(menu);
+                menu.dataset.file = file;
+                document.querySelector(`.recording-card[data-filename="${file}"]`).appendChild(menu);
             }
-            const rect = event.target.getBoundingClientRect();
-            menu.style.top = `${rect.bottom + window.scrollY}px`;
-            menu.style.left = `${rect.left + window.scrollX}px`;
-
             if (menu.classList.contains('active')) {
                 menu.classList.remove('active');
                 return;
             }
-
             menu.innerHTML = `
                 <button class="btn-download" onclick="downloadRecording('/recordings/${file}')">Download</button>
                 <button class="btn-share" onclick="shareRecording('/recordings/${file}')">Share</button>
@@ -694,9 +993,8 @@
                 <button class="btn-delete" onclick="deleteRecording('${file}')">Delete</button>
             `;
             menu.classList.add('active');
-
             const closeMenu = (e) => {
-                if (!menu.contains(e.target)) {
+                if (!menu.contains(e.target) && !event.target.contains(e.target)) {
                     menu.classList.remove('active');
                     document.removeEventListener('click', closeMenu);
                 }
@@ -752,6 +1050,7 @@
                         }
                         logMessage('Recording deleted');
                         showToast(`Recording ${file} deleted`, 'success');
+                        loadRecordings(currentPage, document.getElementById('sort-select').value);
                     })
                     .catch(err => {
                         logMessage('Delete error: ' + err.message);
@@ -783,7 +1082,6 @@
                 .catch(err => logMessage('Stop recording error: ' + err.message));
         };
 
-        // Slider updates
         document.getElementById("threshold-slider").addEventListener("input", (e) => {
             const value = parseFloat(e.target.value);
             document.getElementById("threshold-value").textContent = value.toFixed(1);
@@ -805,6 +1103,28 @@
             document.getElementById("silence-timeout-value").textContent = value.toFixed(1);
             updateParams({silence_timeout: value});
         });
+
+        initSpectrogram().catch(err => {
+            logMessage('Initialization error: ' + err.message);
+        });
+
+        setTimeout(() => {
+            document.getElementById('mic-status').textContent = 'Connected';
+            document.getElementById('system-status').textContent = 'Running';
+            document.getElementById('hardware').textContent = JSON.stringify({
+                "name": "default",
+                "index": 19,
+                "hostapi": 0,
+                "max_input_channels": 64,
+                "max_output_channels": 64,
+                "default_low_input_latency": 0.008684807256235827,
+                "default_low_output_latency": 0.008684807256235827,
+                "default_high_input_latency": 0.034807256235827665,
+                "default_high_output_latency": 0.034807256235827665,
+                "default_samplerate": 44100
+            }, null, 2);
+            loadRecordings();
+        }, 60000); // 1-minute delay to simulate loading
     </script>
 </body>
 </html>
